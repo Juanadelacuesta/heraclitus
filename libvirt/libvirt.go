@@ -89,15 +89,15 @@ func (d *driver) parceVirtInstallArgs(dc *DomainConfig) []string {
 		fmt.Sprintf("--connect=%s", d.uri),
 		fmt.Sprintf("--name=%s", dc.Name),
 		fmt.Sprintf("--memory=%d", dc.Memory),
-		fmt.Sprintf("--vcpus=%d", dc.CPUs),
+		fmt.Sprintf("--vcpus=%d,cores=%d", dc.CPUs, dc.Cores),
 		"--import",
-		"--disk", "device=cdrom,path=/home/ubuntu/go/src/github.com/juanadelacuesta/heraclitus/vms/focal-server-cloudimg-amd64.img,format=qcow2",
+		"--disk", "path=/home/ubuntu/go/src/github.com/juanadelacuesta/heraclitus/vms/focal-server-cloudimg-amd64.img,format=qcow2",
 		"--os-variant=ubuntu22.04",
-		"--network", "bridge=virbr0,model=virtio",
+		//	"--network", "bridge=virbr0,model=virtio",
 		"--graphics", "vnc,listen=0.0.0.0",
 		"--noautoconsole",
 		"--cloud-init", "user-data=/home/ubuntu/go/src/github.com/juanadelacuesta/heraclitus/vms/user-data.yaml,meta-data=/home/ubuntu/go/src/github.com/juanadelacuesta/heraclitus/vms/meta-data.yaml,network-config=/home/ubuntu/go/src/github.com/juanadelacuesta/heraclitus/vms/network-config.yaml",
-		"--print-xml=1",
+		"--print-xml=2",
 	}
 
 	//args = append(args, fmt.Sprintf("--id ", dc.ID))
@@ -106,30 +106,36 @@ func (d *driver) parceVirtInstallArgs(dc *DomainConfig) []string {
 }
 
 func (d *driver) getXMLfromConfig(dc *DomainConfig) (string, error) {
+	var outb, errb bytes.Buffer
 
 	args := d.parceVirtInstallArgs(dc)
+
 	cmd := exec.Command("virt-install", args...)
-	out, err := cmd.Output()
+	cmd.Stdout = &outb
+	cmd.Stderr = &errb
+
+	err := cmd.Run()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %s", err, errb.String())
 	}
 
-	return string(out), nil
+	return outb.String(), nil
 }
 
-func (d *driver) CreateDomain(config *DomainConfig) {
+func (d *driver) CreateDomain(config *DomainConfig) error {
 	domainXML, err := d.getXMLfromConfig(config)
 	if err != nil {
-		fmt.Println("dolor", err)
-		return
+		return fmt.Errorf("invalid domain configuration: %w", err)
 	}
 
-	d.logger.Debug("define libvirt domain using xml: ", domainXML)
-	dom, err := d.conn.DomainDefineXML(domainXML)
+	//d.logger.Debug("define libvirt domain using xml: %s", domainXML)
+
+	dom, err := d.conn.DomainCreateXML(domainXML, libvirt.DOMAIN_NONE)
 	if err != nil {
-		fmt.Println("oh the error the second time", err)
+		return fmt.Errorf("unable to define domain: %w", err)
 	}
-	fmt.Println(dom)
+	fmt.Printf("\n %+v\n", dom)
+	return nil
 }
 
 func (d *driver) createDomainXML() {

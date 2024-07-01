@@ -32,11 +32,11 @@ func main() {
 		Name:     "blah",
 		Metadata: map[string]string{"ID": "blah"},
 		Memory:   10,
-		CPUs:     1,
+		CPUs:     4,
 		Cores:    2,
 	}
 
-	conn.CreateDomain(config)
+	fmt.Println(conn.CreateDomain(config))
 	//conn.GetVms()
 	cancel()
 
