@@ -29,15 +29,18 @@ func main() {
 	//conn.GetVms()
 
 	config := &libvirt.DomainConfig{
-		Name:     "blah",
-		Metadata: map[string]string{"ID": "blah"},
-		Memory:   10,
-		CPUs:     4,
-		Cores:    2,
+		Name:         "blah",
+		Metadata:     map[string]string{"ID": "blah"},
+		Memory:       10,
+		CPUs:         4,
+		Cores:        2,
+		OsVariant:    "ubuntu22.04",
+		CloudImgPath: "/home/ubuntu/go/src/github.com/juanadelacuesta/heraclitus/vms/focal-server-cloudimg-amd64.img,format=qcow2",
+		DiskFmt:      "qcow2",
 	}
 
 	fmt.Println(conn.CreateDomain(config))
-	//conn.GetVms()
+	conn.GetVms()
 	cancel()
 
 	time.Sleep(2 * time.Second)

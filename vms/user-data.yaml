@@ -1,8 +1,12 @@
 #cloud-config
+
 users:
-  - name: sudheer
+  - default
+  - name: sumit
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    plain_text_passwd: 'ubuntu'
     ssh_authorized_keys:
-      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMTU9mySQ3UQU3zv69mt1z/2eXwTPzUNamKQi0ZCTG3m sudheer
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC31v1/cUhjyA8aznoy9FlwU4d6p/zfxP5RqRxhCWzGK juanita.delacuestamorales@hashicorp.com
     sudo: ["ALL=(ALL) NOPASSWD:ALL"]
     groups: sudo
     shell: /bin/bash
