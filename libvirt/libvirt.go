@@ -5,27 +5,32 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"text/template"
 
 	"github.com/hashicorp/go-hclog"
 	"libvirt.org/go/libvirt"
 )
 
-var (
-	sshURIRegex = `^ssh:\/\/` + // Scheme
-		`(([^@\/\s:]+)(:[^@\/\s:]+)?@)?` + // User (optional) and Password (optional)
-		`([a-zA-Z0-9.\-]+)` + // Host
-		`(:\d{1,5})?$` // Port (optional)
+const (
+	domainUserDataFolder = "/virt"
+	userDataTemplate     = "/libvirt/user-data.tmpl"
+	metaDataTemplate     = "/libvirt/meta-data.tmpl"
+	envFile              = "/etc/profile.d/virt-envs.sh"
+)
 
-	ErrEmptyURI   = errors.New("connection URI can't be empty")
-	ErrInvalidURI = errors.New("invalid connection URI")
+var (
+	ErrEmptyURI = errors.New("connection URI can't be empty")
 )
 
 type driver struct {
-	uri    string
-	conn   *libvirt.Connect
-	logger hclog.Logger
+	uri     string
+	conn    *libvirt.Connect
+	logger  hclog.Logger
+	dataDir string
 }
 
 func (d *driver) monitorCtx(ctx context.Context) {
@@ -41,16 +46,17 @@ func validURI(uri string) error {
 		return ErrEmptyURI
 	}
 
-	/* re := regexp.MustCompile(sshURIRegex)
-	if !re.MatchString(uri) {
-		return ErrInvalidURI
-	} */
-
 	return nil
 }
 
-func New(ctx context.Context, URI string, logger hclog.Logger) (*driver, error) {
+func New(ctx context.Context, dataDir string, URI string, logger hclog.Logger) (*driver, error) {
 	if err := validURI(URI); err != nil {
+		return nil, err
+	}
+
+	path := filepath.Join(dataDir, domainUserDataFolder)
+	err := os.MkdirAll(path, 0600)
+	if err != nil {
 		return nil, err
 	}
 
@@ -60,9 +66,10 @@ func New(ctx context.Context, URI string, logger hclog.Logger) (*driver, error) 
 	}
 
 	d := &driver{
-		conn:   conn,
-		logger: logger,
-		uri:    URI,
+		conn:    conn,
+		logger:  logger,
+		uri:     URI,
+		dataDir: path,
 	}
 
 	go d.monitorCtx(ctx)
@@ -83,37 +90,92 @@ func metadataAsString(m map[string]string) string {
 	return strings.Join(meta, ",")
 }
 
-func (d *driver) getXMLfromConfig(dc *DomainConfig) (string, error) {
+func (d *driver) createDomain(dc *DomainConfig, ci *cloudinitConfig) error {
 	var outb, errb bytes.Buffer
 
-	args := d.parceVirtInstallArgs(dc)
+	args := d.parceVirtInstallArgs(dc, ci)
 
 	cmd := exec.Command("virt-install", args...)
+	cmd.Dir = d.dataDir
 	cmd.Stdout = &outb
 	cmd.Stderr = &errb
 
 	err := cmd.Run()
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", err, errb.String())
+		return fmt.Errorf("libvirt: %w: %s", err, errb.String())
 	}
+	fmt.Println(outb.String())
 
-	return outb.String(), nil
+	return nil
 }
 
-func (d *driver) CreateDomain(config *DomainConfig) error {
-	domainXML, err := d.getXMLfromConfig(config)
+func executeTemplate(config *DomainConfig, in string, out string) error {
+	pwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("invalid domain configuration: %w", err)
+		return fmt.Errorf("libvirt: unable to get path: %w", err)
 	}
 
-	//d.logger.Debug("define libvirt domain using xml: %s", domainXML)
-
-	dom, err := d.conn.DomainDefineXML(domainXML)
+	tmpl, err := template.ParseFiles(pwd + in)
 	if err != nil {
-		return fmt.Errorf("unable to define domain: %w", err)
+		return fmt.Errorf("libvirt: unable to parse template: %w", err)
 	}
 
-	return dom.Create()
+	f, err := os.Create(out)
+	defer f.Close()
+
+	if err != nil {
+		return fmt.Errorf("libvirt: create file: %w", err)
+	}
+
+	err = tmpl.Execute(f, config)
+	if err != nil {
+		return fmt.Errorf("libvirt: unable to execute template: %w", err)
+	}
+	return nil
+}
+
+func createCloudInitFilesFromTmpls(config *DomainConfig, domainFolder string) (*cloudinitConfig, error) {
+
+	err := executeTemplate(config, metaDataTemplate, domainFolder+"/meta-data")
+	if err != nil {
+		return nil, err
+	}
+
+	err = executeTemplate(config, userDataTemplate, domainFolder+"/user-data")
+	if err != nil {
+		return nil, err
+	}
+
+	ci := &cloudinitConfig{
+		userDataPath: domainFolder + "/user-data",
+		metadataPath: domainFolder + "/meta-data",
+	}
+
+	return ci, nil
+}
+
+func (d *driver) CreateDomain(config *DomainConfig) (*libvirt.Domain, error) {
+	domainFolder := filepath.Join(d.dataDir, config.Name)
+	err := os.MkdirAll(domainFolder, 0700)
+	if err != nil {
+		return nil, err
+	}
+
+	ci, err := createCloudInitFilesFromTmpls(config, domainFolder)
+	if err != nil {
+		return nil, err
+	}
+
+	err = d.createDomain(config, ci)
+	if err != nil {
+		return nil, err
+	}
+	dom, err := d.conn.LookupDomainByName(config.Name)
+	fmt.Println("invisible error?", err)
+	j, err := dom.GetID()
+	fmt.Println("getting the ID maybe: ", j, err)
+
+	return dom, err
 }
 
 func (d *driver) GetVms() {

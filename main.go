@@ -13,33 +13,58 @@ import (
 )
 
 func main() {
-
+	name := "juana-27"
 	appLogger := hclog.New(&hclog.LoggerOptions{
 		Name:  "my-app",
 		Level: hclog.LevelFromString("DEBUG"),
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 
-	conn, err := libvirt.New(ctx, "qemu:///system", appLogger)
+	conn, err := libvirt.New(ctx, "/home/ubuntu", "qemu:///system", appLogger)
 	if err != nil {
 		fmt.Printf("error: %+v\n %+v\n", conn, err)
 		return
 	}
-
-	//conn.GetVms()
-
-	config := &libvirt.DomainConfig{
-		Name:         "blah",
-		Metadata:     map[string]string{"ID": "blah"},
-		Memory:       10,
-		CPUs:         4,
-		Cores:        2,
-		OsVariant:    "ubuntu22.04",
-		CloudImgPath: "/home/ubuntu/go/src/github.com/juanadelacuesta/heraclitus/vms/focal-server-cloudimg-amd64.img,format=qcow2",
-		DiskFmt:      "qcow2",
+	users := libvirt.Users{
+		Default: true,
+		Users: []libvirt.UserConfig{
+			{
+				Name:     "juana",
+				Password: "password",
+				SSHKeys:  []string{"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCy0vGcocd3IkW0iVnO5UlmjmPZjtydg4n31UhwB0Z/TuqkN/mEQFd/jEcgrX76R2Wn/f3FAT5o++yrwaWrpf7C2z6kDv+ntCkHjy6qKy2W14R8glGIPkQUyA7Pm6SgpFCua6MLddZSGld705QHMNu6a89MH3cvS1S9AoPWEnz/bJL1akb4YhY/NN4S7gM3VSSNmlRGCyjWAh1nVjya4S+2UYQIq23KIMif3SuEX0duyXdvAD+asXI3zHoRAOps1CNfp+qIqAJisFBcmfwplT6IFwUFI29S2ff9uUx5RQjl0ZiUTil25Bdgbm0fq20KuET9lMAHE2Bwbg4DVXK8oq3djTREu6oF089Usnzri1glpbjSC/b0/KRV3KJeTm+X1YaIJyjSMN0VHFG/IXRj+gV3PVQeANKDoJl5b2sgl0J+5INKUu0JeFfZcoSiRfdlgrFPChA/ktEc/h9lCbXsIcqBLYfj9RcybfhiIZFbgjR/xR9XwrU1F4WesBc1Zie5UU8= ubuntu@ip-10-0-1-184"},
+				Sudo:     "ALL=(ALL) NOPASSWD:ALL",
+				Groups:   []string{"sudo"},
+				Shell:    "/bin/bash",
+			},
+		},
 	}
 
-	fmt.Println(conn.CreateDomain(config))
+	config := &libvirt.DomainConfig{
+		Name:             name,
+		Memory:           2048,
+		CPUs:             4,
+		Cores:            2,
+		OsVariant:        "ubuntufocal",
+		CloudImgPath:     "/home/ubuntu/test/" + name + ".img",
+		DiskFmt:          "qcow2",
+		NetworkInterface: "virbr0",
+		HostName:         name,
+		UsersConfig:      users,
+		EnvVariables: map[string]string{
+			"IDENTITY": "identity",
+			"BLAH":     "identity",
+		},
+	}
+
+	dom, err := conn.CreateDomain(config)
+	if err != nil {
+		fmt.Println(" no vm this time", err)
+		cancel()
+		return
+	}
+
+	fmt.Println(dom.GetID())
+
 	conn.GetVms()
 	cancel()
 
