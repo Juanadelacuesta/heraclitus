@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"text/template"
 
 	"github.com/hashicorp/go-hclog"
@@ -16,10 +15,14 @@ import (
 )
 
 const (
-	domainUserDataFolder = "/virt"
-	userDataTemplate     = "/libvirt/user-data.tmpl"
-	metaDataTemplate     = "/libvirt/meta-data.tmpl"
-	envFile              = "/etc/profile.d/virt-envs.sh"
+	defaultURI             = "qemu:///system"
+	defaultDataDir         = "/home/ubuntu"
+	dataDirPermissions     = 0777
+	userDataDir            = "/virt"
+	userDataDirPermissions = 0777
+	userDataTemplate       = "/libvirt/user-data.tmpl"
+	metaDataTemplate       = "/libvirt/meta-data.tmpl"
+	envFile                = "/etc/profile.d/virt-envs.sh"
 )
 
 var (
@@ -49,28 +52,44 @@ func validURI(uri string) error {
 	return nil
 }
 
-func New(ctx context.Context, dataDir string, URI string, logger hclog.Logger) (*driver, error) {
-	if err := validURI(URI); err != nil {
-		return nil, err
-	}
+type Option func(*driver)
 
-	path := filepath.Join(dataDir, domainUserDataFolder)
-	err := os.MkdirAll(path, 0600)
-	if err != nil {
-		return nil, err
+func WithConnectionURI(URI string) Option {
+	return func(d *driver) {
+		d.uri = URI
 	}
+}
 
-	conn, err := libvirt.NewConnect(URI)
-	if err != nil {
-		return nil, err
+func WithDataDirectory(path string) Option {
+	return func(d *driver) {
+		d.dataDir = path
 	}
+}
+
+func New(ctx context.Context, logger hclog.Logger, options ...Option) (*driver, error) {
 
 	d := &driver{
-		conn:    conn,
-		logger:  logger,
-		uri:     URI,
-		dataDir: path,
+		logger:  logger.Named("nomad-virt-plugin"),
+		uri:     defaultURI,
+		dataDir: defaultDataDir,
 	}
+
+	for _, opt := range options {
+		opt(d)
+	}
+
+	path := filepath.Join(d.dataDir, userDataDir)
+	err := os.MkdirAll(path, dataDirPermissions)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := libvirt.NewConnect(d.uri)
+	if err != nil {
+		return nil, err
+	}
+
+	d.conn = conn
 
 	go d.monitorCtx(ctx)
 
@@ -79,15 +98,6 @@ func New(ctx context.Context, dataDir string, URI string, logger hclog.Logger) (
 
 func (d *driver) Close() (int, error) {
 	return d.conn.Close()
-}
-
-func metadataAsString(m map[string]string) string {
-	meta := []string{}
-	for key, value := range m {
-		meta = append(meta, fmt.Sprintf("%s=\"%s\"", key, value))
-	}
-
-	return strings.Join(meta, ",")
 }
 
 func (d *driver) createDomain(dc *DomainConfig, ci *cloudinitConfig) error {
@@ -104,7 +114,9 @@ func (d *driver) createDomain(dc *DomainConfig, ci *cloudinitConfig) error {
 	if err != nil {
 		return fmt.Errorf("libvirt: %w: %s", err, errb.String())
 	}
-	fmt.Println(outb.String())
+
+	d.logger.Debug("logger", outb.String())
+	d.logger.Debug("logger", errb.String())
 
 	return nil
 }
@@ -134,34 +146,34 @@ func executeTemplate(config *DomainConfig, in string, out string) error {
 	return nil
 }
 
-func createCloudInitFilesFromTmpls(config *DomainConfig, domainFolder string) (*cloudinitConfig, error) {
+func createCloudInitFilesFromTmpls(config *DomainConfig, domainDir string) (*cloudinitConfig, error) {
 
-	err := executeTemplate(config, metaDataTemplate, domainFolder+"/meta-data")
+	err := executeTemplate(config, metaDataTemplate, domainDir+"/meta-data")
 	if err != nil {
 		return nil, err
 	}
 
-	err = executeTemplate(config, userDataTemplate, domainFolder+"/user-data")
+	err = executeTemplate(config, userDataTemplate, domainDir+"/user-data")
 	if err != nil {
 		return nil, err
 	}
 
 	ci := &cloudinitConfig{
-		userDataPath: domainFolder + "/user-data",
-		metadataPath: domainFolder + "/meta-data",
+		userDataPath: domainDir + "/user-data",
+		metadataPath: domainDir + "/meta-data",
 	}
 
 	return ci, nil
 }
 
 func (d *driver) CreateDomain(config *DomainConfig) (*libvirt.Domain, error) {
-	domainFolder := filepath.Join(d.dataDir, config.Name)
-	err := os.MkdirAll(domainFolder, 0700)
+	domainDir := filepath.Join(d.dataDir, userDataDir, config.Name)
+	err := os.MkdirAll(domainDir, userDataDirPermissions)
 	if err != nil {
 		return nil, err
 	}
 
-	ci, err := createCloudInitFilesFromTmpls(config, domainFolder)
+	ci, err := createCloudInitFilesFromTmpls(config, domainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -170,10 +182,18 @@ func (d *driver) CreateDomain(config *DomainConfig) (*libvirt.Domain, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	dom, err := d.conn.LookupDomainByName(config.Name)
 	fmt.Println("invisible error?", err)
 	j, err := dom.GetID()
 	fmt.Println("getting the ID maybe: ", j, err)
+
+	if config.RemoveConfigFiles {
+		err = os.RemoveAll(domainDir)
+		if err != nil {
+			d.logger.Error("unable to discard user data files after domain creation", err)
+		}
+	}
 
 	return dom, err
 }

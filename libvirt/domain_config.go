@@ -1,12 +1,33 @@
 package libvirt
 
 import (
+	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/hashicorp/go-multierror"
 )
 
+var (
+	ErrEmptyName = errors.New("domain name can't be emtpy")
+)
+
+type cloudinitConfig struct {
+	metadataPath string
+	userDataPath string
+}
+
 type Users struct {
-	Default bool
-	Users   []UserConfig
+	IncludeDefault bool
+	Users          []UserConfig
+}
+
+type File struct {
+	Path        string
+	Content     string
+	Permissions string
+	Owner       string
+	Group       string
 }
 
 type UserConfig struct {
@@ -18,29 +39,35 @@ type UserConfig struct {
 	Shell    string
 }
 
-type cloudinitConfig struct {
-	metadataPath string
-	userDataPath string
+type DomainConfig struct {
+	Name              string
+	Metadata          map[string]string
+	Memory            int
+	Cores             int
+	CPUs              int
+	OsVariant         string
+	CloudImgPath      string
+	DiskFmt           string
+	NetworkInterface  string
+	Type              string
+	HostName          string
+	UsersConfig       Users
+	Files             []File
+	EnvVariables      map[string]string
+	RemoveConfigFiles bool
 }
 
-type DomainConfig struct {
-	Name             string
-	Image            string
-	Metadata         map[string]string
-	Memory           int
-	Cores            int
-	CPUs             int
-	OsVariant        string
-	CloudImgPath     string
-	DiskFmt          string
-	NetworkInterface string
-	Type             string
-	HostName         string
-	UsersConfig      Users
-	EnvVariables     map[string]string
+func metadataAsString(m map[string]string) string {
+	meta := []string{}
+	for key, value := range m {
+		meta = append(meta, fmt.Sprintf("%s=\"%s\"", key, value))
+	}
+
+	return strings.Join(meta, ",")
 }
 
 func (d *driver) parceVirtInstallArgs(dc *DomainConfig, ci *cloudinitConfig) []string {
+
 	args := []string{
 		"--debug",
 		fmt.Sprintf("--connect=%s", d.uri),
@@ -54,5 +81,15 @@ func (d *driver) parceVirtInstallArgs(dc *DomainConfig, ci *cloudinitConfig) []s
 		"--cloud-init", fmt.Sprintf("user-data=%s,meta-data=%s,disable=on", ci.userDataPath, ci.metadataPath),
 		"--noautoconsole",
 	}
+
 	return args
+}
+
+func (dc *DomainConfig) Validate() error {
+	var mErr multierror.Error
+	if dc.Name == "" {
+		return ErrEmptyName
+	}
+
+	return mErr.ErrorOrNil()
 }

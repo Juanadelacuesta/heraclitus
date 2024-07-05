@@ -13,20 +13,21 @@ import (
 )
 
 func main() {
-	name := "juana-27"
+
+	name := "juana-43"
 	appLogger := hclog.New(&hclog.LoggerOptions{
-		Name:  "my-app",
-		Level: hclog.LevelFromString("DEBUG"),
+		Name: "my-app",
 	})
+
 	ctx, cancel := context.WithCancel(context.Background())
 
-	conn, err := libvirt.New(ctx, "/home/ubuntu", "qemu:///system", appLogger)
+	conn, err := libvirt.New(ctx, appLogger)
 	if err != nil {
 		fmt.Printf("error: %+v\n %+v\n", conn, err)
 		return
 	}
 	users := libvirt.Users{
-		Default: true,
+		IncludeDefault: true,
 		Users: []libvirt.UserConfig{
 			{
 				Name:     "juana",
@@ -40,19 +41,36 @@ func main() {
 	}
 
 	config := &libvirt.DomainConfig{
-		Name:             name,
-		Memory:           2048,
-		CPUs:             4,
-		Cores:            2,
-		OsVariant:        "ubuntufocal",
-		CloudImgPath:     "/home/ubuntu/test/" + name + ".img",
-		DiskFmt:          "qcow2",
-		NetworkInterface: "virbr0",
-		HostName:         name,
-		UsersConfig:      users,
+		RemoveConfigFiles: false,
+		Name:              name,
+		Memory:            2048,
+		CPUs:              4,
+		Cores:             2,
+		OsVariant:         "ubuntufocal",
+		CloudImgPath:      "/home/ubuntu/test/" + name + ".img",
+		DiskFmt:           "qcow2",
+		NetworkInterface:  "virbr0",
+		HostName:          name,
+		UsersConfig:       users,
 		EnvVariables: map[string]string{
 			"IDENTITY": "identity",
 			"BLAH":     "identity",
+		},
+		Files: []libvirt.File{
+			{
+				Path:        "/home/juana/text.txt",
+				Content:     ` this is the text we will be putting`,
+				Permissions: "0777",
+				Owner:       "root",
+				Group:       "root",
+			},
+			{
+				Path:        "/home/ubuntu/text.txt",
+				Content:     ` this is the text we will be putting`,
+				Permissions: "0777",
+				Owner:       "ubuntu",
+				Group:       "ubuntu",
+			},
 		},
 	}
 
