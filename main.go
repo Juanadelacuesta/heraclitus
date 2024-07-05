@@ -1,8 +1,6 @@
 package main
 
 import (
-	// TODO: update the path below to match your own repository
-
 	"context"
 	"fmt"
 	"github/juanadelacuesta/heraclitus/libvirt"
@@ -14,7 +12,7 @@ import (
 
 func main() {
 
-	name := "juana-43"
+	name := "juana-44"
 	appLogger := hclog.New(&hclog.LoggerOptions{
 		Name: "my-app",
 	})

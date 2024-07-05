@@ -177,25 +177,34 @@ func (d *driver) CreateDomain(config *DomainConfig) (*libvirt.Domain, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if config.RemoveConfigFiles {
+			err = os.RemoveAll(domainDir)
+			if err != nil {
+				d.logger.Error("unable to discard user data files after domain creation", err)
+			}
+		}
+	}()
 
 	err = d.createDomain(config, ci)
 	if err != nil {
 		return nil, err
 	}
 
-	dom, err := d.conn.LookupDomainByName(config.Name)
-	fmt.Println("invisible error?", err)
-	j, err := dom.GetID()
-	fmt.Println("getting the ID maybe: ", j, err)
+	return d.conn.LookupDomainByName(config.Name)
+}
 
-	if config.RemoveConfigFiles {
-		err = os.RemoveAll(domainDir)
-		if err != nil {
-			d.logger.Error("unable to discard user data files after domain creation", err)
-		}
+func (d *driver) GetDomain(name string) (*libvirt.Domain, error) {
+	return d.conn.LookupDomainByName(name)
+}
+
+func (d *driver) StopDomain(name string) error {
+	dom, err := d.conn.LookupDomainByName(name)
+	if err != nil {
+		return err
 	}
 
-	return dom, err
+	return dom.ShutdownFlags(libvirt.DOMAIN_SHUTDOWN_SIGNAL)
 }
 
 func (d *driver) GetVms() {

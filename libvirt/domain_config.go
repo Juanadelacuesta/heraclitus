@@ -30,12 +30,18 @@ type File struct {
 	Group       string
 }
 
+type UserGroups []string
+
+func (ug UserGroups) Join() string {
+	return strings.Join(ug, ", ")
+}
+
 type UserConfig struct {
 	Name     string
 	Password string
 	SSHKeys  []string
 	Sudo     string
-	Groups   []string
+	Groups   UserGroups
 	Shell    string
 }
 

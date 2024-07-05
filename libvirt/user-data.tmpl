@@ -19,10 +19,7 @@ users:
     sudo: ["{{.Sudo}}"]
   {{- end }}  
   {{- $length_groups := len .Groups }} {{- if ne $length_groups 0 }}
-    groups:
-    {{- range .Groups}} 
-      - {{.}}
-    {{- end }}
+    groups:  {{.Groups.Join}}
   {{- end}}  
     shell: /bin/bash
 {{- end }}    
@@ -30,7 +27,7 @@ write_files:
   - path:  /etc/profile.d/virt.sh
     content: |
     {{- $length_envs := len .EnvVariables }} {{- if ne $length_envs 0 }}
-      {{ range $key, $value := .EnvVariables }}
+      {{- range $key, $value := .EnvVariables }}
       export {{$key}}={{$value}}
       {{- end }} 
     {{- end }}
