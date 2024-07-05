@@ -207,6 +207,15 @@ func (d *driver) StopDomain(name string) error {
 	return dom.ShutdownFlags(libvirt.DOMAIN_SHUTDOWN_SIGNAL)
 }
 
+func (d *driver) DestroyDomain(name string) error {
+	dom, err := d.conn.LookupDomainByName(name)
+	if err != nil {
+		return err
+	}
+
+	return dom.DestroyFlags(libvirt.DOMAIN_DESTROY_GRACEFUL)
+}
+
 func (d *driver) GetVms() {
 	doms, err := d.conn.ListAllDomains(libvirt.CONNECT_LIST_DOMAINS_ACTIVE)
 	if err != nil {
